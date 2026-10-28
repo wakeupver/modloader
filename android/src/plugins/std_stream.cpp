@@ -195,7 +195,7 @@ void StdStream::CbUpdate(modloader_plugin_t*)
     gtasa::fnOS_FileRead        readFile  = (gtasa::fnOS_FileRead)host->Sym(gtasa::sym::OS_FileRead);
 
     if(!api.files || !api.infos || !api.bufferSize || !addImage || !openFile || !closeFile || !readFile ||
-       !gtasa::MatchesFingerprint((uintptr_t)readFile, gtasa::kFp_OS_FileRead))
+       !gtasa::AcceptHookTarget((uintptr_t)readFile, gtasa::kFp_OS_FileRead, Loader::Get().Config().strictChecks))
     {
         MLA_ERR("std.stream: some of the streaming functions of the game were not found, replacing models/textures is disabled");
         return;
@@ -258,11 +258,8 @@ int StdStream::CbOnStartup(modloader_plugin_t*)
         MLA_ERR("std.stream: CStreaming::LoadCdDirectory was not found in libGTASA.so, this version of the game is not supported");
         return 1;
     }
-    if(!gtasa::MatchesFingerprint(load, gtasa::kFp_LoadCdDirectory))
-    {
-        MLA_ERR("std.stream: CStreaming::LoadCdDirectory does not look like the one of GTA SA 2.00, refusing to hook it");
+    if(!gtasa::AcceptHookTarget(load, gtasa::kFp_LoadCdDirectory, Loader::Get().Config().strictChecks))
         return 1;
-    }
 
     if(!host->Hook((void*)load, (void*)&Hook_LoadCdDirectory, s.OriginalLoadSlot()) || !s.origLoad)
     {

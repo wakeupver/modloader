@@ -74,6 +74,7 @@ bool LoadBaseConfig(const std::string& path, BaseConfig& cfg)
             cfg.enableStream = GetBool(keys, "enablestream", cfg.enableStream);
             cfg.injectIdeIpl = GetBool(keys, "injectideipl", cfg.injectIdeIpl);
             cfg.logRedirects = GetBool(keys, "logredirects", cfg.logRedirects);
+            cfg.strictChecks = GetBool(keys, "strictchecks", cfg.strictChecks);
         }
     }
     return true;
@@ -95,7 +96,8 @@ std::string DefaultBaseConfigText()
 "EnableData        = true        ; std.data:   replace/override any file the game reads from its data folder, plus IDE/IPL injection\n"
 "EnableStream      = true        ; std.stream: replace models, textures, collisions, animations... that live inside the IMG archives\n"
 "InjectIdeIpl      = true        ; Add the .ide/.ipl files found in the mods to data/gta.dat automatically\n"
-"LogRedirects      = true        ; Log (once) every file that is served from a mod instead of from the game\n";
+"LogRedirects      = true        ; Log (once) every file that is served from a mod instead of from the game\n"
+"StrictChecks      = false       ; true = refuse to hook functions whose code differs from the analysed build (false = warn and hook anyway)\n";
 }
 
 /*

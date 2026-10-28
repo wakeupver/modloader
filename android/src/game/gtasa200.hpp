@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <string>
 
 namespace mla { namespace gtasa {
 
@@ -104,6 +105,28 @@ extern const Fingerprint kFp_LoadCdDirectory;
 
 /* Compares the code at the given (possibly Thumb tagged) address with a fingerprint */
 bool MatchesFingerprint(uintptr_t addr, const Fingerprint& fp);
+
+enum class CodeCheck
+{
+    Match,          // the code is the one that was analysed
+    LooksHooked,    // it starts with a jump: someone else (the Fastman92 plugin loader, another AML mod...) hooked it before us
+    Different       // anything else
+};
+
+/* Looks at the first bytes of a function. 'found' receives the first 12 bytes in hex, for the log. */
+CodeCheck CheckCode(uintptr_t addr, const Fingerprint& fp, std::string* found = nullptr);
+
+/* True if the first instruction of the code is a jump somewhere else, the way inline hooks start */
+bool LooksLikeInlineHook(const uint8_t* code, bool thumb);
+
+/*
+ *  CheckCode + logging + policy. Code that matches, and code that is already hooked by someone else (we hook on top of it),
+ *  is accepted. Anything else is accepted with a warning, unless 'strict' (StrictChecks = true in config.ini).
+ */
+bool AcceptHookTarget(uintptr_t addr, const Fingerprint& fp, bool strict);
+
+/* Address libGTASA.so is loaded at, only used to print offsets in the log */
+void SetLibraryBase(uintptr_t base);
 
 /* Unit tests only: they hand the plugins ordinary C++ functions, which of course do not start like the ones of libGTASA.so */
 void SetFingerprintChecks(bool enabled);

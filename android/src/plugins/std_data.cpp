@@ -117,10 +117,11 @@ int StdData::OriginalOpen(int area, void** out, const char* name, int access)
 
 std::string StdData::MakeGameName(const std::string& abs)
 {
-    // OS_FileOpen/NvFOpen treat a name that starts with '/' as a path relative to the external storage root
-    // (the part of the files folder before "/Android"), so everything from "/Android/" on is what it wants.
-    size_t pos = abs.find("/Android/");
-    if(pos == std::string::npos) pos = abs.find("/android/");
+    // OS_FileOpen/NvFOpen treat a name that starts with '/' as a path relative to the external storage root, which is the part of
+    // StorageRootBuffer before the first "/Android" (strstr, so "/Android_unprotected/..." is found too, and "/android" as a second
+    // try). Our files are under that same folder, so from there on is what the game wants.
+    size_t pos = abs.find("/Android");
+    if(pos == std::string::npos) pos = abs.find("/android");
     return (pos == std::string::npos)? std::string() : abs.substr(pos);
 }
 
@@ -234,7 +235,7 @@ std::string StdData::Redirect(const char* gameName)
     if(name.empty())
     {
         if(logged.insert("!" + key).second)
-            MLA_ERR("std.data: \"%s\" is outside of the Android/ folder and cannot be served to the game", abs.c_str());
+            MLA_ERR("std.data: \"%s\" is not under an \"/Android...\" folder of the external storage and cannot be served to the game", abs.c_str());
         return std::string();
     }
 
@@ -337,11 +338,8 @@ int StdData::CbOnStartup(modloader_plugin_t*)
         MLA_ERR("std.data: OS_FileOpen was not found in libGTASA.so, this version of the game is not supported");
         return 1;
     }
-    if(!gtasa::MatchesFingerprint(open, gtasa::kFp_OS_FileOpen))
-    {
-        MLA_ERR("std.data: OS_FileOpen does not look like the one of GTA SA 2.00, refusing to hook it");
+    if(!gtasa::AcceptHookTarget(open, gtasa::kFp_OS_FileOpen, Loader::Get().Config().strictChecks))
         return 1;
-    }
 
     // Reading the original gta.dat needs two more of the OS_File* functions (optional)
     uintptr_t rd = host->Sym(gtasa::sym::OS_FileRead);
@@ -357,7 +355,7 @@ int StdData::CbOnStartup(modloader_plugin_t*)
     }
     d.hooked = true;
 
-    if(rd && cl && gtasa::MatchesFingerprint(rd, gtasa::kFp_OS_FileRead))
+    if(rd && cl && gtasa::AcceptHookTarget(rd, gtasa::kFp_OS_FileRead, Loader::Get().Config().strictChecks))
     {
         StdData* self = &d;
         d.SetOriginalReader([self, rd, cl](const char* gameName, std::string& out) -> bool {

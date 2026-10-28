@@ -146,7 +146,7 @@ inline std::string Hex64(uint64_t v)
 /* FNV-1a 64 bits, incremental */
 struct Fnv64
 {
-    uint64_t h = 1469598103934665603ULL;
+    uint64_t h = 14695981039346656037ULL;      // standard FNV-1a 64 offset basis
     void Add(const void* data, size_t len)
     {
         const unsigned char* p = (const unsigned char*)data;

@@ -17,9 +17,13 @@
 #include "game/host.hpp"
 #include "plugins/std_data.hpp"
 #include "plugins/std_stream.hpp"
+#include "game/gtasa200.hpp"
 #include "util/fs.hpp"
 #include "util/log.hpp"
+#include "util/strutil.hpp"
 
+#include <cstdio>
+#include <cstring>
 #include <string>
 
 #if !defined(__arm__)
@@ -72,6 +76,48 @@ static std::string FindGameFilesFolder()
     return root;
 }
 
+/*
+ *  What is the library the game is really running? Written to the log so that a build of the game that behaves differently
+ *  from the analysed one (see tools/verify_libgtasa.py) can be recognised from modloader.log alone.
+ */
+static void LogGameLibrary()
+{
+    uintptr_t base = aml->GetLib("libGTASA.so");
+    mla::gtasa::SetLibraryBase(base);
+    MLA_LOG("Game: %s, libGTASA.so is loaded at 0x%08x", aml->GetCurrentGame()? aml->GetCurrentGame() : "?", (unsigned)base);
+
+    std::string path;
+    if(FILE* maps = std::fopen("/proc/self/maps", "r"))
+    {
+        char line[768];
+        while(std::fgets(line, sizeof(line), maps))
+            if(std::strstr(line, "libGTASA.so"))
+            {
+                if(const char* slash = std::strchr(line, '/')) path = slash;
+                break;
+            }
+        std::fclose(maps);
+    }
+    while(!path.empty() && (path.back() == '\n' || path.back() == '\r')) path.pop_back();
+    if(path.empty()) return;
+
+    mla::fs::Stat st = mla::fs::GetStat(path);
+    if(st.exists && !st.isDir && st.size < (128u << 20))
+    {
+        mla::Fnv64 hash;
+        if(FILE* f = std::fopen(path.c_str(), "rb"))
+        {
+            static char buf[1 << 16];
+            size_t n;
+            while((n = std::fread(buf, 1, sizeof(buf), f)) > 0) hash.Add(buf, n);
+            std::fclose(f);
+        }
+        MLA_LOG("libGTASA.so file: %s (%llu bytes, fnv1a64 %s)", path.c_str(), (unsigned long long)st.size, mla::Hex64(hash.h).c_str());
+    }
+    else
+        MLA_LOG("libGTASA.so file: %s", path.c_str());
+}
+
 ON_MOD_LOAD()
 {
     logger->SetTag("Mod Loader");
@@ -93,6 +139,8 @@ ON_MOD_LOAD()
         logger->Error("Could not use \"%s\" as the Mod Loader folder", root.c_str());
         return;
     }
+
+    LogGameLibrary();
 
     mla::Loader& loader = mla::Loader::Get();
     loader.RegisterPlugin(mla::StdData::Get().Plugin());

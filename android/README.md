@@ -59,6 +59,20 @@ Rules, as in the original:
 The plugin interface is the C interface of the original (`include/modloader/modloader.h`), so more plugins can be added
 the way the original does it: a `modloader_plugin_t` with `GetBehaviour`/`InstallFile`, registered in `aml_entry.cpp`.
 
+## Troubleshooting
+
+Everything the loader decides is written to `modloader/modloader.log` (the previous run is kept as `modloader.log.old`).
+The first lines say which game library is running (path, size and an FNV-1a 64 hash; the library this port was analysed
+with has 11707712 bytes and `236098b3ffc3c90a`), then one line per hook:
+
+| Log line | Meaning |
+|---|---|
+| `... was already hooked by someone else` | Another loader (the Fastman92 plugin loader, another AML mod) hooked that function first. The port hooks on top of it, this is fine. |
+| `unexpected code ... Hooking anyway` | The first bytes of the function are neither the analysed ones nor a hook. A different build of the game, most likely. The log prints what was found. Put `StrictChecks = true` in `modloader/.data/config.ini` to refuse instead. |
+| `... not under an "/Android..." folder` | The game's files folder is outside of the external storage root, the mods cannot be handed to the game. |
+| `none of them is in CStreaming::ms_aInfoForModel` | A limit adjuster moved the streaming array; replacing entries of IMG archives is switched off, replacing files still works. |
+| `Done: N mod(s), M file(s), K handled by plugins` | `K = 0` means no plugin took the files: look at the lines above it. |
+
 ## Building
 
 GitHub Actions does everything (`.github/workflows/android.yml`): unit tests on the runner, then the NDK build,

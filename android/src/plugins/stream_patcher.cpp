@@ -83,6 +83,20 @@ void StreamPatcher::Record(const char* path, int imageIndex)
     }
 
     std::vector<ImgDirName> names = ParseImgDirectory(dir.data(), dir.size());
+
+    // The game just loaded this directory into the streaming infos, they must show up in the array we know about. If they do not,
+    // something (a limit adjuster, for instance) moved the array and everything we would write would go nowhere.
+    size_t visible = 0;
+    for(unsigned i = 0; i < gtasa::kNumStreamingInfos; ++i)
+        if(api.infos[i].cdSize != 0 && api.infos[i].imgId == (uint8_t)imageIndex) ++visible;
+    if(names.size() >= 100 && visible == 0)
+    {
+        MLA_ERR("std.stream: \"%s\" has %u entries but none of them is in CStreaming::ms_aInfoForModel: the game seems to use another "
+                "array (moved by a limit adjuster?). Replacing models inside IMG archives is disabled.", path, (unsigned)names.size());
+        enabled.store(false);
+        pending.clear();
+        return;
+    }
     std::vector<PatchTarget> targets = FindPatchTargets(api.infos, gtasa::kNumStreamingInfos, imageIndex, names,
         [this](const std::string& n) { return layout->Find(n) != nullptr; });
 
@@ -93,6 +107,7 @@ void StreamPatcher::Record(const char* path, int imageIndex)
 void StreamPatcher::Apply(bool late)
 {
     if(pending.empty()) return;
+    if(!enabled.load()) { pending.clear(); return; }
 
     uint32_t maxSectors = 0;
     size_t applied = 0;

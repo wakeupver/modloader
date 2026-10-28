@@ -38,6 +38,18 @@ Mod = satu folder di dalam `modloader/`. File boleh diletakkan di mana saja di d
 * ✔ `std.data` (ganti file, tambah IDE/IPL), ✔ `std.stream` (ganti/tambah entri IMG), ◐ ganti `text/*.gxt` (file biasa).
 * ✘ merge baris demi baris `handling.cfg` dkk., ✘ merge `.fxt`, ✘ arsip `.img` baru, ✘ hot reload, ✘ plugin upstream lain (asi, scm, fx...).
 
+## Pemecahan masalah
+
+Semua keputusan loader ditulis ke `modloader/modloader.log` (log sebelumnya disimpan sebagai `modloader.log.old`). Baris awalnya
+menyebut library game yang berjalan (path, ukuran, hash FNV-1a 64; library yang dianalisis berukuran 11707712 byte dengan hash
+`236098b3ffc3c90a`), lalu satu baris per hook:
+
+* `was already hooked by someone else`: fungsi itu sudah di-hook loader lain (Fastman92 plugin loader, mod AML lain). Hook ditumpuk di atasnya, aman.
+* `unexpected code ... Hooking anyway`: byte awal fungsi bukan yang dianalisis dan bukan hook; kemungkinan build game berbeda. Log menampilkan byte yang ditemukan. `StrictChecks = true` di `modloader/.data/config.ini` membuatnya menolak.
+* `not under an "/Android..." folder`: folder files game di luar root penyimpanan eksternal.
+* `none of them is in CStreaming::ms_aInfoForModel`: array streaming dipindah limit adjuster; ganti entri IMG dimatikan, ganti file tetap jalan.
+* `Done: N mod(s), M file(s), K handled by plugins`: `K = 0` berarti tidak ada plugin yang memproses; lihat baris di atasnya.
+
 ## Build
 
 GitHub Actions mengerjakan semuanya (`.github/workflows/android.yml`): tes unit, lalu build NDK; zip berisi

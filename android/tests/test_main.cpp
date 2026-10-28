@@ -135,7 +135,7 @@ static void TestConfig()
     CHECK(!def.IsModIgnored("Anything"));
     CHECK_EQ_INT(def.GetModPriority("Anything"), 50);
 
-    WriteFile(dir + "/config.ini", "[Config]\nEnableLog = false\nMaxLogSize = 1024\n[Android]\nEnableStream = no\n");
+    WriteFile(dir + "/config.ini", "[Config]\nEnableLog = false\nMaxLogSize = 1024\n[Android]\nEnableStream = no\nStrictChecks = yes\n");
     BaseConfig base;
     CHECK(LoadBaseConfig(dir + "/config.ini", base));
     CHECK(!base.enableLog);
@@ -143,11 +143,13 @@ static void TestConfig()
     CHECK_EQ_INT(base.maxLogSize, 1024);
     CHECK(!base.enableStream);
     CHECK(base.enableData);
+    CHECK(base.strictChecks);
 
     WriteFile(dir + "/defcfg.ini", DefaultBaseConfigText());
     BaseConfig base2;
     CHECK(LoadBaseConfig(dir + "/defcfg.ini", base2));
     CHECK(base2.enableLog && base2.enableData && base2.enableStream && base2.injectIdeIpl);
+    CHECK(!base2.strictChecks);
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
@@ -655,6 +657,80 @@ static void TestLoaderAndPlugins()
 
 
 /* ------------------------------------------------------------------------------------------------------------- */
+static void TestCodeChecks()
+{
+    Section("hook target checks");
+
+    gtasa::SetFingerprintChecks(true);
+    const gtasa::Fingerprint& fp = gtasa::kFp_OS_FileOpen;
+
+    alignas(4) static uint8_t good[16]    = { 0xF0, 0xB5, 0x03, 0xAF, 0x2D, 0xE9, 0x00, 0x0F, 1, 2, 3, 4, 5, 6, 7, 8 };
+    alignas(4) static uint8_t subst[16]   = { 0xDF, 0xF8, 0x00, 0xF0, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0, 0, 0, 0, 0 };   // ldr.w pc, [pc]; addr
+    alignas(4) static uint8_t substNop[16]= { 0x00, 0xBF, 0xDF, 0xF8, 0x00, 0xF0, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0, 0, 0 };
+    alignas(4) static uint8_t bw[16]      = { 0x00, 0xF0, 0x10, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };                 // b.w
+    alignas(4) static uint8_t armJump[16] = { 0x04, 0xF0, 0x1F, 0xE5, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0, 0, 0, 0, 0 };     // ldr pc, [pc, #-4]
+    alignas(4) static uint8_t other[16]   = { 0x2D, 0xE9, 0xF0, 0x4F, 0x01, 0x02, 0x03, 0x04, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    std::string hex;
+    CHECK(gtasa::CheckCode((uintptr_t)good | 1, fp, &hex) == gtasa::CodeCheck::Match);
+    CHECK_EQ_STR(hex, "F0 B5 03 AF 2D E9 00 0F 01 02 03 04");
+    CHECK(gtasa::CheckCode((uintptr_t)subst | 1, fp) == gtasa::CodeCheck::LooksHooked);
+    CHECK(gtasa::CheckCode((uintptr_t)substNop | 1, fp) == gtasa::CodeCheck::LooksHooked);
+    CHECK(gtasa::CheckCode((uintptr_t)bw | 1, fp) == gtasa::CodeCheck::LooksHooked);
+    CHECK(gtasa::CheckCode((uintptr_t)armJump, fp) == gtasa::CodeCheck::LooksHooked);          // ARM state: bit 0 clear
+    CHECK(gtasa::CheckCode((uintptr_t)other | 1, fp) == gtasa::CodeCheck::Different);
+
+    // policy: matching and already hooked code is always accepted, anything else is a warning unless StrictChecks is on
+    CHECK(gtasa::AcceptHookTarget((uintptr_t)good | 1, fp, true));
+    CHECK(gtasa::AcceptHookTarget((uintptr_t)subst | 1, fp, true));
+    CHECK(gtasa::AcceptHookTarget((uintptr_t)other | 1, fp, false));
+    CHECK(!gtasa::AcceptHookTarget((uintptr_t)other | 1, fp, true));
+    CHECK(!gtasa::AcceptHookTarget(0, fp, false));
+
+    // the paths of the Android storage the game may live in
+    CHECK_EQ_STR(StdData::MakeGameName("/storage/emulated/0/Android/data/com.rockstargames.gtasa/files/modloader/Mod/a.dff"),
+                 "/Android/data/com.rockstargames.gtasa/files/modloader/Mod/a.dff");
+    CHECK_EQ_STR(StdData::MakeGameName("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/files/modloader/skin/a.dff"),
+                 "/Android_unprotected/data/com.rockstargames.gtasa/files/modloader/skin/a.dff");
+    CHECK_EQ_STR(StdData::MakeGameName("/storage/emulated/10/android/data/x/files/a"), "/android/data/x/files/a");
+}
+
+static void TestStreamPatcherRelocatedInfos()
+{
+    Section("std.stream patcher (streaming infos moved by something else)");
+
+    FakeGame g;
+    g.SetImage(0, "MODELS\\GTA3.IMG", true);
+    std::vector<std::tuple<std::string, uint32_t, uint32_t>> entries;
+    for(unsigned i = 0; i < 150; ++i)
+    {
+        char name[24]; std::snprintf(name, sizeof(name), "d%03u.dff", i);
+        entries.push_back(std::make_tuple(std::string(name), 100 + i * 4, 3u));
+        g.modelIndex[name] = 1000 + i;
+    }
+    g.directories["MODELS\\GTA3.IMG"] = FakeGame::BuildDirectory(entries);
+
+    ImgLayout lay = MakeLayout(g_tmp + "/sp4", { {"d001.dff", 100} });
+    g.directories["modloader/.vfs/stream.img"] = FakeGame::BuildDirectory({ std::make_tuple("d001.dff", 1u, 1u) });
+
+    // the patcher is given another array than the one the "game" fills in
+    std::vector<gtasa::CStreamingInfo> stale(gtasa::kNumStreamingInfos);
+    std::memset(stale.data(), 0, stale.size() * sizeof(stale[0]));
+    StreamPatcher::Api api = g.MakeApi();
+    api.infos = stale.data();
+
+    StreamPatcher p;
+    p.Configure(api, &lay, "modloader/.vfs/stream.img");
+    g.Init2Loop(p);
+
+    CHECK(!p.IsEnabled());                                      // noticed, and gave up instead of writing into the wrong array
+    CHECK_EQ_INT(p.PatchedCount(), 0);
+    CHECK_EQ_INT(g.infos[1001].imgId, 0);                       // the game's own array was never touched
+    CHECK_EQ_INT(g.infos[1001].cdPosn, 104);
+    CHECK_EQ_INT(stale[1001].cdSize, 0);
+}
+
+/* ------------------------------------------------------------------------------------------------------------- */
 /*  The glue between the plugins and the game, exercised through a fake host: the "game functions" below are        */
 /*  ordinary C++ functions that behave like the real ones (OS_FileRead returns 0 on success and 2 at the end of    */
 /*  a file, CdStreamOpen-style handles, first free slot of AddImageToList...).                                      */
@@ -857,7 +933,8 @@ static void TestHostGlue()
     CHECK_EQ_STR(glue::openCalls[0], "/Android/data/com.test.glue/files/modloader/.data/cache/stream.img");
     CHECK(fs::Exists(archive));
 
-    // a build of the game whose OS_FileOpen does not look like the expected one gets no hook at all
+    // The fake "functions" are not the Thumb code of libGTASA.so, so their fingerprints cannot match. By default that is a
+    // warning (builds of the game that differ, or code that another mod already hooked, still work)...
     gtasa::SetFingerprintChecks(true);
     glue::hooks.clear();
     L.ResetForTests();
@@ -866,7 +943,22 @@ static void TestHostGlue()
     CHECK(L.Init(root));
     L.RegisterPlugin(StdData::Get().Plugin());
     L.RegisterPlugin(StdStream::Get().Plugin());
-    L.Start();                                      // the fake functions are not Thumb code: fingerprints cannot match
+    L.Start();
+    CHECK(StdData::Get().IsHooked());
+    CHECK(glue::hooks.count((void*)&glue::OS_FileOpen) == 1);
+    CHECK(glue::hooks.count((void*)&glue::LoadCdDirectory) == 1);
+
+    // ...and with StrictChecks = true nothing is hooked
+    WriteFile(ml + "/.data/config.ini", "[Android]\nStrictChecks = true\n");
+    glue::hooks.clear();
+    L.ResetForTests();
+    StdData::Get().Reset();
+    StdStream::Get().Reset();
+    CHECK(L.Init(root));
+    CHECK(L.Config().strictChecks);
+    L.RegisterPlugin(StdData::Get().Plugin());
+    L.RegisterPlugin(StdStream::Get().Plugin());
+    L.Start();
     CHECK(glue::hooks.empty());
     CHECK(!StdData::Get().IsHooked());
     CHECK(!StdStream::Get().Patcher().IsEnabled());
@@ -890,6 +982,8 @@ int main()
     TestStreamPatcherEarly();
     TestStreamPatcherLate();
     TestStreamPatcherFailures();
+    TestStreamPatcherRelocatedInfos();
+    TestCodeChecks();
     TestLoaderAndPlugins();
     TestHostGlue();
 
