@@ -1,0 +1,110 @@
+# Builds the Android (AML plugin) port that lives in android/.
+# It does not touch (and is not triggered by) the Windows build.
+name: Android (AML plugin)
+
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'include/modloader/**'
+      - 'src/shared/ini_parser/**'
+      - '.github/workflows/android.yml'
+    tags:
+      - 'android-v*'
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'include/modloader/**'
+      - 'src/shared/ini_parser/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write        # only used to attach the zip to a release when an "android-v*" tag is pushed
+
+env:
+  # Commit of https://github.com/RusJJ/AndroidModLoader whose SDK headers the plugin is built against
+  AML_SDK_REF: 3ef5c918ec855f3db5e3a216dcb176e209b89922
+
+jobs:
+  tests:
+    name: Unit tests (host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S android -B build-host -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build-host
+
+      - name: Test
+        run: ctest --test-dir build-host --output-on-failure
+
+  build:
+    name: libmodloader.so (armeabi-v7a)
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout the AML SDK
+        uses: actions/checkout@v4
+        with:
+          repository: RusJJ/AndroidModLoader
+          ref: ${{ env.AML_SDK_REF }}
+          path: aml-sdk
+
+      - name: Configure (Android NDK)
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-$ANDROID_NDK_ROOT}}"
+          echo "Using NDK at $NDK"
+          cmake -S android -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=armeabi-v7a \
+            -DANDROID_PLATFORM=android-21 \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAML_SDK_DIR="$GITHUB_WORKSPACE/aml-sdk"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Package
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-$ANDROID_NDK_ROOT}}"
+          STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          mkdir -p dist/mods
+          cp build/libmodloader.so dist/mods/libmodloader.so
+          "$STRIP" --strip-unneeded dist/mods/libmodloader.so
+          cp android/README.md android/README.id.md dist/
+          cp android/tools/verify_libgtasa.py dist/
+          (cd dist && zip -r ../modloader-aml-armeabi-v7a.zip .)
+          ls -l dist/mods modloader-aml-armeabi-v7a.zip
+          file dist/mods/libmodloader.so
+
+      - name: Exports sanity check
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-$ANDROID_NDK_ROOT}}"
+          NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$NM" -D --defined-only dist/mods/libmodloader.so | tee exports.txt
+          for sym in __GetModInfo __INeedASpecificGame OnModLoad; do
+            grep -q " $sym\$" exports.txt || { echo "::error::missing AML entry point $sym"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modloader-aml-armeabi-v7a
+          path: |
+            modloader-aml-armeabi-v7a.zip
+            dist/mods/libmodloader.so
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "Mod Loader for Android $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" modloader-aml-armeabi-v7a.zip --clobber
