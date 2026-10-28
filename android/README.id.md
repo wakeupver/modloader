@@ -60,4 +60,5 @@ GitHub Actions mengerjakan semuanya (`.github/workflows/android.yml`): tes unit,
   `libGTASA.so` yang dikirim (sha256 `46c1a97f...06b9db`, build 2.00 yang juga membawa section Fastman92) semua simbol,
   fingerprint dan ukuran objek cocok.
 * Perilaku fungsi yang di-hook dibaca dari disassembly library tersebut.
-* **Belum**: dijalankan di perangkat, build NDK (dikerjakan oleh workflow).
+* Build NDK r30 (clang 21) di GitHub Actions: berhasil compile dan link; library hanya mengekspor entry point AML (`exports.map`).
+* **Belum**: dijalankan di perangkat.

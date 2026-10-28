@@ -85,8 +85,10 @@ if(ANDROID)
     target_compile_options(modloader PRIVATE -O2 -fvisibility=hidden -fvisibility-inlines-hidden)
     target_compile_definitions(modloader PRIVATE NDEBUG)
     target_link_libraries(modloader PRIVATE log android dl)
-    # Only the AML entry points (__GetModInfo, OnModLoad...) are exported, everything else stays private
-    target_link_options(modloader PRIVATE -Wl,--exclude-libs,ALL -Wl,--no-undefined -Wl,-z,max-page-size=16384)
+    # Only the AML entry points listed in exports.map are exported, everything else stays private
+    target_link_options(modloader PRIVATE -Wl,--exclude-libs,ALL -Wl,--no-undefined -Wl,-z,max-page-size=16384
+                                          "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/exports.map")
+    set_target_properties(modloader PROPERTIES LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/exports.map")
     set_target_properties(modloader PROPERTIES PREFIX "lib" OUTPUT_NAME "modloader")
 else()
     # ----------------------------------------------------------------------------------------------------------------

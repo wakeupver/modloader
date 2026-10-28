@@ -116,7 +116,10 @@ Done:
   of `OS_FileRead`, the "first entry wins" rule and the layouts of `CStreamingInfo`/`ms_files` in `LoadCdDirectory`,
   `AddImageToList`, `GetCdPosnAndSize`...) comes from reading the disassembly of that library.
 
-Not done: running it on a device, building with the NDK (the workflow does it).
+* Built by GitHub Actions with the Android NDK r30 (clang 21): compiles and links; the library exports only the AML entry
+  points (`exports.map`).
+
+Not done: running it on a device.
 
 ## Notes for upstream
 

@@ -1,0 +1,18 @@
+/*
+ *  Mod Loader - Android port: the only symbols libmodloader.so exports.
+ *
+ *  AML finds these with dlsym. Everything else (including the typeinfo of libc++ templates, which keep default
+ *  visibility whatever -fvisibility says) stays private so it can never clash with another mod or with the game.
+ *
+ *  Add the name of any other AML entry point the plugin starts to define (OnModPreLoad, OnAllModsLoaded...): lld
+ *  refuses to link if this list names a symbol that does not exist, so keep it to what aml_entry.cpp defines.
+ */
+{
+    global:
+        __GetModInfo;
+        OnModLoad;
+        OnModUnload;
+        OnGameCrash;
+    local:
+        *;
+};
