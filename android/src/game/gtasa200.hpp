@@ -127,6 +127,7 @@ bool AcceptHookTarget(uintptr_t addr, const Fingerprint& fp, bool strict);
 
 /* Address libGTASA.so is loaded at, only used to print offsets in the log */
 void SetLibraryBase(uintptr_t base);
+uintptr_t LibraryBase();
 
 /* Unit tests only: they hand the plugins ordinary C++ functions, which of course do not start like the ones of libGTASA.so */
 void SetFingerprintChecks(bool enabled);

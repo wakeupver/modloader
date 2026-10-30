@@ -47,6 +47,7 @@ menyebut library game yang berjalan (path, ukuran, hash FNV-1a 64; library yang 
 * `was already hooked by someone else`: fungsi itu sudah di-hook loader lain (Fastman92 plugin loader, mod AML lain). Hook ditumpuk di atasnya, aman.
 * `unexpected code ... Hooking anyway`: byte awal fungsi bukan yang dianalisis dan bukan hook; kemungkinan build game berbeda. Log menampilkan byte yang ditemukan. `StrictChecks = true` di `modloader/.data/config.ini` membuatnya menolak.
 * `not under an "/Android..." folder`: folder files game di luar root penyimpanan eksternal.
+* `X is not where it is exported: ...`: hanya informasi; array dipindah (oleh Fastman92 loader) dan port memakai yang aktif, dibaca dari slot GOT.
 * `none of them is in CStreaming::ms_aInfoForModel`: array streaming dipindah limit adjuster; ganti entri IMG dimatikan, ganti file tetap jalan.
 * `config.ini (read): EnablePlugins=1 EnableData=1 EnableStream=1 ...`: pengaturan yang benar-benar dipakai. `EnableStream=0` membuat std.stream mengabaikan semua model/tekstur/collision/animasi (dan menuliskannya).
 * `Mod "X": N file(s) [dff=2, txd=2, ...]` lalu satu baris `file -> plugin` per file (30 pertama): keputusan tiap plugin; `no plugin wants this file` berarti file itu tidak akan dipakai.

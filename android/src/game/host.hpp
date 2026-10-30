@@ -19,7 +19,16 @@ struct Host
     /* Address of an exported symbol of libGTASA.so (mangled name), 0 when it does not exist. For Thumb functions the
        returned address has the lowest bit set, exactly like dlsym. */
     uintptr_t   (*Sym)(const char* mangledName);
+
+    /* Address the code of libGTASA.so really uses for a global variable (see gotsym.hpp), null = same as Sym */
+    uintptr_t   (*Data)(const char* mangledName);
 };
+
+/* Host::Data when there is one, Host::Sym otherwise */
+inline uintptr_t HostData(const Host* host, const char* mangledName)
+{
+    return host->Data? host->Data(mangledName) : host->Sym(mangledName);
+}
 
 /* Set by the AML entry point (or by a test) before the plugins start. */
 const Host* GetHost();

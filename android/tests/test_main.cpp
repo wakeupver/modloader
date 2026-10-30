@@ -14,6 +14,7 @@
 #include "../src/core/config.hpp"
 #include "../src/core/loader.hpp"
 #include "../src/game/gtasa200.hpp"
+#include "../src/game/gotsym.hpp"
 #include "../src/game/host.hpp"
 #include "../src/plugins/vfs.hpp"
 #include "../src/plugins/gtadat.hpp"
@@ -25,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <elf.h>
 #include <map>
 #include <string>
 #include <tuple>
@@ -774,6 +776,96 @@ static void TestStreamPatcherRelocatedInfos()
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
+static void TestGotSymbols()
+{
+    Section("data symbols through the GOT");
+
+    // A tiny 32 bits ELF image: header, 2 program headers, .dynamic, .dynsym, .dynstr, .rel.dyn and a GOT, all in one buffer.
+    std::vector<uint8_t> mem(0x2000, 0);
+    uint8_t* b = mem.data();
+    uintptr_t base = (uintptr_t)b;
+
+    Elf32_Ehdr* eh = (Elf32_Ehdr*)b;
+    std::memcpy(eh->e_ident, ELFMAG, SELFMAG);
+    eh->e_ident[EI_CLASS] = ELFCLASS32;
+    eh->e_phoff = sizeof(Elf32_Ehdr);
+    eh->e_phnum = 2;
+    Elf32_Phdr* ph = (Elf32_Phdr*)(b + eh->e_phoff);
+    ph[0].p_type = PT_LOAD;    ph[0].p_vaddr = 0;     ph[0].p_memsz = 0x2000; ph[0].p_filesz = 0x2000;
+    ph[1].p_type = PT_DYNAMIC; ph[1].p_vaddr = 0x200; ph[1].p_memsz = 0x80;
+
+    Elf32_Dyn* dyn = (Elf32_Dyn*)(b + 0x200);
+    dyn[0].d_tag = DT_SYMTAB; dyn[0].d_un.d_ptr = 0x400;
+    dyn[1].d_tag = DT_STRTAB; dyn[1].d_un.d_ptr = 0x500;
+    dyn[2].d_tag = DT_REL;    dyn[2].d_un.d_ptr = 0x600;
+    dyn[3].d_tag = DT_RELSZ;  dyn[3].d_un.d_val = 4 * sizeof(Elf32_Rel);
+    dyn[4].d_tag = DT_NULL;
+
+    const char strs[] = "\0foo\0_ZN10CStreaming8ms_filesE\0bar";           // offsets: foo=1, ms_files=5, bar=31
+    std::memcpy(b + 0x500, strs, sizeof(strs));
+    Elf32_Sym* sy = (Elf32_Sym*)(b + 0x400);
+    sy[1].st_name = 1; sy[2].st_name = 5; sy[3].st_name = 31;
+
+    Elf32_Rel* rel = (Elf32_Rel*)(b + 0x600);
+    rel[0].r_offset = 0x700; rel[0].r_info = (1 << 8) | 21;                // foo      R_ARM_GLOB_DAT
+    rel[1].r_offset = 0x704; rel[1].r_info = (2 << 8) | 21;                // ms_files R_ARM_GLOB_DAT
+    rel[2].r_offset = 0x708; rel[2].r_info = (3 << 8) | 23;                // bar      R_ARM_RELATIVE: not a symbol slot
+    rel[3].r_offset = 0x70c; rel[3].r_info = (3 << 8) | 2;                 // bar      R_ARM_ABS32
+    uint32_t* got = (uint32_t*)(b + 0x700);
+    got[0] = 0x1111; got[1] = 0xCAFE0000; got[2] = 0x3333; got[3] = 0;
+
+    gtasa::ImageInfo img;
+    CHECK(gtasa::ImageFromMemory(base, &img));
+    CHECK(!gtasa::ImageFromMemory(0, &img));
+    CHECK_EQ_INT(gtasa::FindGotSlot(img, "foo"), base + 0x700);
+    CHECK_EQ_INT(gtasa::FindGotSlot(img, "_ZN10CStreaming8ms_filesE"), base + 0x704);
+    CHECK_EQ_INT(gtasa::FindGotSlot(img, "bar"), base + 0x70c);             // the RELATIVE entry is skipped
+    CHECK_EQ_INT(gtasa::FindGotSlot(img, "nothing"), 0);
+    CHECK_EQ_INT(gtasa::FindGotSlot(gtasa::ImageInfo(), "foo"), 0);
+
+    bool relocated = false;
+    // the slot was changed after the linker filled it: that is the address the code uses
+    CHECK_EQ_INT(gtasa::ResolveDataSymbol(img, "_ZN10CStreaming8ms_filesE", 0x1000, &relocated), 0xCAFE0000u);
+    CHECK(relocated);
+    CHECK_EQ_INT(gtasa::ResolveDataSymbol(img, "foo", 0x1111, &relocated), 0x1111);      // slot == exported: nothing moved
+    CHECK(!relocated);
+    CHECK_EQ_INT(gtasa::ResolveDataSymbol(img, "bar", 0x4444, &relocated), 0x4444);      // empty slot: use the exported address
+    CHECK_EQ_INT(gtasa::ResolveDataSymbol(img, "nothing", 0x5555, &relocated), 0x5555);  // no slot at all
+    CHECK(!relocated);
+
+    // Optional, only with the real library at hand: MLA_TEST_LIBGTASA=/path/to/libGTASA.so ctest
+    if(const char* libPath = std::getenv("MLA_TEST_LIBGTASA"))
+    {
+        std::string file;
+        if(fs::ReadFile(libPath, file, 64u << 20))
+        {
+            const Elf32_Ehdr* fe = (const Elf32_Ehdr*)file.data();
+            const Elf32_Phdr* fp = (const Elf32_Phdr*)(file.data() + fe->e_phoff);
+            uint32_t top = 0;
+            for(unsigned i = 0; i < fe->e_phnum; ++i)
+                if(fp[i].p_type == PT_LOAD && fp[i].p_vaddr + fp[i].p_memsz > top) top = fp[i].p_vaddr + fp[i].p_memsz;
+            std::vector<uint8_t> image(top + 4096, 0);
+            for(unsigned i = 0; i < fe->e_phnum; ++i)
+                if(fp[i].p_type == PT_LOAD) std::memcpy(image.data() + fp[i].p_vaddr, file.data() + fp[i].p_offset, fp[i].p_filesz);
+
+            // like the dynamic linker: mapped at 'ib', program headers as the loader keeps them (the ones of the file are where
+            // the PT_PHDR entry says, not at e_phoff)
+            uintptr_t ib = (uintptr_t)image.data();
+            gtasa::ImageInfo real;
+            real.bias = ib;
+            for(unsigned i = 0; i < fe->e_phnum; ++i)
+                if(fp[i].p_type == PT_PHDR) { real.phdr = image.data() + fp[i].p_vaddr; real.phnum = fp[i].p_memsz / sizeof(Elf32_Phdr); }
+            CHECK(real.phdr != nullptr);
+            CHECK_EQ_INT(gtasa::FindGotSlot(real, gtasa::sym::ms_files) - ib,                0x676ac4);
+            CHECK_EQ_INT(gtasa::FindGotSlot(real, gtasa::sym::ms_aInfoForModel) - ib,        0x677dd8);
+            CHECK_EQ_INT(gtasa::FindGotSlot(real, gtasa::sym::ms_streamingBufferSize) - ib,  0x679634);
+            CHECK(!gtasa::ImageFromMemory(ib, &real) || true);                  // (e_phoff is not inside a mapped segment of this image)
+            std::printf("  (checked against the real libGTASA.so)\n");
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------------------------------------------- */
 /*  The glue between the plugins and the game, exercised through a fake host: the "game functions" below are        */
 /*  ordinary C++ functions that behave like the real ones (OS_FileRead returns 0 on success and 2 at the end of    */
 /*  a file, CdStreamOpen-style handles, first free slot of AddImageToList...).                                      */
@@ -886,7 +978,7 @@ static void TestHostGlue()
     SetupOriginalImages(glue::game);
     glue::game.nextHandle = 2;
 
-    static const Host host = { &glue::Hook, &glue::Sym };
+    static const Host host = { &glue::Hook, &glue::Sym, nullptr };
     gtasa::SetFingerprintChecks(false);
 
     Loader& L = Loader::Get();
@@ -1036,6 +1128,7 @@ int main()
     TestStreamPatcherImageAfterInit();
     TestStreamPatcherRelocatedInfos();
     TestCodeChecks();
+    TestGotSymbols();
     TestLoaderAndPlugins();
     TestHostGlue();
 

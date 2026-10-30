@@ -14,6 +14,7 @@
 #include <mod/logger.h>
 
 #include "core/loader.hpp"
+#include "game/gotsym.hpp"
 #include "game/host.hpp"
 #include "plugins/std_data.hpp"
 #include "plugins/std_stream.hpp"
@@ -45,6 +46,23 @@ static uintptr_t HostSym(const char* name)
     return g_hGTASA? aml->GetSym(g_hGTASA, name) : 0;
 }
 
+/* The address the code of the game uses for a global variable; libGTASA.so is patched at run time by the Fastman92 loader and some
+   of its arrays are not where their exported symbol says */
+static mla::gtasa::ImageInfo g_image;
+static bool                  g_haveImage = false;
+
+static uintptr_t HostData(const char* name)
+{
+    uintptr_t exported = HostSym(name);
+    if(!g_haveImage) return exported;
+
+    bool relocated = false;
+    uintptr_t used = mla::gtasa::ResolveDataSymbol(g_image, name, exported, &relocated);
+    if(relocated)
+        MLA_LOG("%s is not where it is exported: exported at 0x%08x, the code of the game uses 0x%08x", name, (unsigned)exported, (unsigned)used);
+    return used;
+}
+
 static void LogSink(int level, const char* line)
 {
     if(level == mla::LOG_ERROR)      logger->Error("%s", line);
@@ -59,7 +77,7 @@ static void LogSink(int level, const char* line)
  */
 static std::string FindGameFilesFolder()
 {
-    if(const char* own = (const char*)HostSym("StorageRootBuffer"))
+    if(const char* own = (const char*)HostData("StorageRootBuffer"))
         if(own[0] == '/' && mla::fs::GetStat(own).isDir)
             return own;
 
@@ -129,7 +147,9 @@ ON_MOD_LOAD()
         return;
     }
 
-    static const mla::Host host = { &HostHook, &HostSym };
+    mla::gtasa::SetLibraryBase(aml->GetLib("libGTASA.so"));
+    g_haveImage = mla::gtasa::FindLoadedImage("libGTASA.so", &g_image);
+    static const mla::Host host = { &HostHook, &HostSym, &HostData };
     mla::SetHost(&host);
     mla::Log::Get().SetSink(&LogSink);
 

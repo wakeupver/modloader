@@ -22,6 +22,7 @@ void SetFingerprintChecks(bool enabled) { g_fingerprintChecks = enabled; }
 static uintptr_t g_libBase = 0;
 
 void SetLibraryBase(uintptr_t base) { g_libBase = base; }
+uintptr_t LibraryBase() { return g_libBase; }
 
 bool MatchesFingerprint(uintptr_t addr, const Fingerprint& fp)
 {

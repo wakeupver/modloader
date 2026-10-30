@@ -190,9 +190,10 @@ void StdStream::CbUpdate(modloader_plugin_t*)
 
     // ---- hand everything to the patcher ----
     StreamPatcher::Api api;
-    api.files      = (gtasa::StreamingFile*)host->Sym(gtasa::sym::ms_files);
-    api.infos      = (gtasa::CStreamingInfo*)host->Sym(gtasa::sym::ms_aInfoForModel);
-    api.bufferSize = (int*)host->Sym(gtasa::sym::ms_streamingBufferSize);
+    // The arrays the code of the game really uses (a limit adjuster may have swapped them for bigger ones)
+    api.files      = (gtasa::StreamingFile*)HostData(host, gtasa::sym::ms_files);
+    api.infos      = (gtasa::CStreamingInfo*)HostData(host, gtasa::sym::ms_aInfoForModel);
+    api.bufferSize = (int*)HostData(host, gtasa::sym::ms_streamingBufferSize);
 
     gtasa::fnAddImageToList     addImage  = (gtasa::fnAddImageToList)host->Sym(gtasa::sym::AddImageToList);
     gtasa::fnCFileMgr_OpenFile  openFile  = (gtasa::fnCFileMgr_OpenFile)host->Sym(gtasa::sym::CFileMgr_OpenFile);

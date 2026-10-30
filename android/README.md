@@ -70,6 +70,7 @@ with has 11707712 bytes and `236098b3ffc3c90a`), then one line per hook:
 | `... was already hooked by someone else` | Another loader (the Fastman92 plugin loader, another AML mod) hooked that function first. The port hooks on top of it, this is fine. |
 | `unexpected code ... Hooking anyway` | The first bytes of the function are neither the analysed ones nor a hook. A different build of the game, most likely. The log prints what was found. Put `StrictChecks = true` in `modloader/.data/config.ini` to refuse instead. |
 | `... not under an "/Android..." folder` | The game's files folder is outside of the external storage root, the mods cannot be handed to the game. |
+| `X is not where it is exported: exported at A, the code of the game uses B` | Information only: the array was moved (by the Fastman92 loader); the port uses the live one. |
 | `none of them is in CStreaming::ms_aInfoForModel` | A limit adjuster moved the streaming array; replacing entries of IMG archives is switched off, replacing files still works. |
 | `config.ini (read): EnablePlugins=1 EnableData=1 EnableStream=1 ...` | The settings the loader is really using. `EnableStream=0` makes std.stream ignore every model/texture/collision/animation (and says so). |
 | `Mod "X": N file(s) [dff=2, txd=2, ...]` and one `file -> plugin` line per file (the first 30) | What each plugin decided for the files of the mod. `no plugin wants this file` means it will never be used. |
@@ -114,6 +115,9 @@ cmake -S android -B build-host && cmake --build build-host && ctest --test-dir b
   again and the streaming infos of the entries we replace are pointed to the generated archive (image index, position,
   size), and `ms_streamingBufferSize` is raised if needed. The archive is registered in the first free `ms_files` slot, the
   game then loads its directory by itself, which is what adds new models.
+* The arrays of the game (`ms_files`, `ms_aInfoForModel`, `ms_streamingBufferSize`) are not taken from their exported symbol but from
+  the GOT slot the code of `libGTASA.so` reads them from: the Fastman92 plugin loader swaps some of them for bigger ones at run
+  time, and the exported symbol is then an empty array nobody uses.
 * Before hooking anything the first bytes of each function are compared with the ones of the analysed build; a build of
   the game that does not match just gets the corresponding feature disabled (and a line in the log).
 

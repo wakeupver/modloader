@@ -36,6 +36,7 @@ set(MLA_PORTABLE_SOURCES
     src/core/loader.cpp
     src/game/host.cpp
     src/game/gtasa200.cpp
+    src/game/gotsym.cpp
     src/plugins/vfs.cpp
     src/plugins/gtadat.cpp
     src/plugins/img.cpp
