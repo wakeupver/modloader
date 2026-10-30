@@ -18,6 +18,7 @@ namespace mla {
 static void Hook_LoadCdDirectory(const char* path, int imageIndex)
 {
     StdStream& s = StdStream::Get();
+    MLA_LOG("std.stream: the game loads the directory of image %d (\"%s\")", imageIndex, path? path : "?");
     if(s.Patcher().IsEnabled()) s.Patcher().OnLoadCdDirectory(path, imageIndex);
     else                        s.CallOriginalLoadCdDirectory(path, imageIndex);
 }
@@ -71,7 +72,11 @@ void StdStream::CallOriginalLoadCdDirectory(const char* path, int idx)
 int StdStream::CbGetBehaviour(modloader_plugin_t* p, modloader_file_t* file)
 {
     if(!Loader::Get().Config().enableStream)
+    {
+        static bool told = false;
+        if(!told) { told = true; MLA_ERR("std.stream is switched off by config.ini (EnableStream = false): models, textures, collisions and animations of the mods are ignored"); }
         return MODLOADER_BEHAVIOUR_NO;
+    }
 
     std::string ext = ToLower(file->buffer + file->pos_filext);
     if(ext == "ipl" && !IsBinaryIplFile(std::string(p->loader->gamepath) + file->buffer))

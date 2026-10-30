@@ -38,7 +38,10 @@ class StdData
         std::string ResolveAbs(const char* gameName);
 
         /* Name to give to OS_FileOpen so it opens the file above ("" = no redirection possible). */
-        std::string Redirect(const char* gameName);
+        std::string Redirect(const char* gameName, std::string* absOut = nullptr);
+
+        /* Logs (until the limit is reached) the different files the game asks for, and the ones that come from a mod */
+        void TraceOpen(int area, int access, const char* gameName, const std::string& abs);
 
         /* "/storage/emulated/0/Android/data/<pkg>/files/x" -> "/Android/data/<pkg>/files/x", see NvFOpen in libGTASA.so */
         static std::string MakeGameName(const std::string& abs);
@@ -92,6 +95,8 @@ class StdData
         std::string         gtaDatPath;         // generated gta.dat (empty until it is built)
         bool                gtaDatBuilt = false;
         bool                hooked = false;
+        int                 traceLeft = 0;
+        std::set<std::string> traced;
 };
 
 /* Is this extension one of the files that std.stream handles (they live inside the IMG archives)? */

@@ -48,6 +48,10 @@ menyebut library game yang berjalan (path, ukuran, hash FNV-1a 64; library yang 
 * `unexpected code ... Hooking anyway`: byte awal fungsi bukan yang dianalisis dan bukan hook; kemungkinan build game berbeda. Log menampilkan byte yang ditemukan. `StrictChecks = true` di `modloader/.data/config.ini` membuatnya menolak.
 * `not under an "/Android..." folder`: folder files game di luar root penyimpanan eksternal.
 * `none of them is in CStreaming::ms_aInfoForModel`: array streaming dipindah limit adjuster; ganti entri IMG dimatikan, ganti file tetap jalan.
+* `config.ini (read): EnablePlugins=1 EnableData=1 EnableStream=1 ...`: pengaturan yang benar-benar dipakai. `EnableStream=0` membuat std.stream mengabaikan semua model/tekstur/collision/animasi (dan menuliskannya).
+* `Mod "X": N file(s) [dff=2, txd=2, ...]` lalu satu baris `file -> plugin` per file (30 pertama): keputusan tiap plugin; `no plugin wants this file` berarti file itu tidak akan dipakai.
+* `trace: the game opens "..." ... -> /storage/...`: 600 file berbeda pertama yang dibuka game (`TraceOpens`); tanda panah menunjukkan file mod yang disajikan. Kalau file mod-mu tidak pernah muncul di daftar, game tidak pernah meminta nama itu: bandingkan namanya.
+* `std.stream: the game loads the directory of image N`: arsip IMG yang dibaca game saat start, disusul jumlah entri yang punya pengganti.
 * `Done: N mod(s), M file(s), K handled by plugins`: `K = 0` berarti tidak ada plugin yang memproses; lihat baris di atasnya.
 
 ## Build

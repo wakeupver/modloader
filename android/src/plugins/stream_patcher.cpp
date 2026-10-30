@@ -20,6 +20,7 @@ void StreamPatcher::Configure(const Api& a, const ImgLayout* l, const std::strin
     synthIdx = -1;
     pending.clear();
     patchedTotal = skippedTotal = 0;
+    allocatedBuffer = 0;
 
     bool ok = api.files && api.infos && api.addImageToList && api.readDirectory && api.originalLoadCdDirectory && layout && !layout->entries.empty();
     enabled.store(ok);
@@ -117,10 +118,10 @@ void StreamPatcher::Apply(bool late)
         const ImgEntry* e = layout->Find(t.lowerName);
         if(!e || t.infoIndex >= gtasa::kNumStreamingInfos) continue;
 
-        if(late && api.bufferSize && (int)e->sectors > *api.bufferSize)
+        if(late && (int)e->sectors > allocatedBuffer)
         {
-            MLA_ERR("std.stream: \"%s\" (%u sectors) is bigger than the streaming buffer of the game (%d sectors) and "
-                    "the game was already running when the loader started, skipped", t.lowerName.c_str(), (unsigned)e->sectors, *api.bufferSize);
+            MLA_ERR("std.stream: \"%s\" (%u sectors) is bigger than the streaming buffers of the game (%d sectors), which already exist: skipped",
+                    t.lowerName.c_str(), (unsigned)e->sectors, allocatedBuffer);
             ++skippedTotal;
             continue;
         }
@@ -164,11 +165,15 @@ void StreamPatcher::OnLoadCdDirectory(const char* path, int imageIndex)
     {
         synthLoaded = true;
         Apply(false);
+        // CStreaming::Init2 allocates the streaming buffers right after the last directory: this is their size
+        allocatedBuffer = api.bufferSize? *api.bufferSize : 0;
     }
     else
     {
         Record(path, imageIndex);
-        if(synthLoaded) Apply(false);       // an archive that comes after ours (not expected, but cheap to support)
+        // An archive whose directory is read after ours (player.img, for instance, is not part of CStreaming::Init2) comes
+        // when the streaming buffers are already allocated: what does not fit in them is left alone.
+        if(synthLoaded) Apply(true);
     }
 }
 
@@ -191,6 +196,7 @@ void StreamPatcher::PatchLate()
     }
 
     synthLoaded = true;
+    allocatedBuffer = api.bufferSize? *api.bufferSize : 0;      // the game is running: the buffers exist
     Apply(true);
 }
 

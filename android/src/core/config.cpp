@@ -75,6 +75,7 @@ bool LoadBaseConfig(const std::string& path, BaseConfig& cfg)
             cfg.injectIdeIpl = GetBool(keys, "injectideipl", cfg.injectIdeIpl);
             cfg.logRedirects = GetBool(keys, "logredirects", cfg.logRedirects);
             cfg.strictChecks = GetBool(keys, "strictchecks", cfg.strictChecks);
+            cfg.traceOpens   = GetBool(keys, "traceopens",   cfg.traceOpens);
         }
     }
     return true;
@@ -97,7 +98,8 @@ std::string DefaultBaseConfigText()
 "EnableStream      = true        ; std.stream: replace models, textures, collisions, animations... that live inside the IMG archives\n"
 "InjectIdeIpl      = true        ; Add the .ide/.ipl files found in the mods to data/gta.dat automatically\n"
 "LogRedirects      = true        ; Log (once) every file that is served from a mod instead of from the game\n"
-"StrictChecks      = false       ; true = refuse to hook functions whose code differs from the analysed build (false = warn and hook anyway)\n";
+"StrictChecks      = false       ; true = refuse to hook functions whose code differs from the analysed build (false = warn and hook anyway)\n"
+"TraceOpens        = true        ; Log the first 600 different files the game opens and which of them are served from a mod (to find out why a mod is not applied)\n";
 }
 
 /*

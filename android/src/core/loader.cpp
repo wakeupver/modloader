@@ -112,7 +112,7 @@ bool Loader::Init(const std::string& gameRoot)
     if(!fs::Exists(cfgPath))
         fs::WriteFileAtomic(cfgPath, DefaultBaseConfigText());
     baseCfg = BaseConfig();
-    LoadBaseConfig(cfgPath, baseCfg);
+    bool cfgRead = LoadBaseConfig(cfgPath, baseCfg);
 
     Log::Get().Open(paths.modloader + "/modloader.log", baseCfg.enableLog, baseCfg.maxLogSize, baseCfg.immediateFlushLog);
 
@@ -131,6 +131,9 @@ bool Loader::Init(const std::string& gameRoot)
     MLA_LOG("Mod Loader %d.%d.%d (Android port)", MODLOADER_VERSION_MAJOR, MODLOADER_VERSION_MINOR, MODLOADER_VERSION_REVISION);
     MLA_LOG("Game folder:   %s", paths.root.c_str());
     MLA_LOG("Profile:       %s", folderCfg.profile.c_str());
+    MLA_LOG("config.ini (%s): EnablePlugins=%d EnableData=%d EnableStream=%d InjectIdeIpl=%d StrictChecks=%d TraceOpens=%d",
+            cfgRead? "read" : "not readable, defaults", (int)baseCfg.enablePlugins, (int)baseCfg.enableData, (int)baseCfg.enableStream,
+            (int)baseCfg.injectIdeIpl, (int)baseCfg.strictChecks, (int)baseCfg.traceOpens);
 
     initialized = true;
     return true;
@@ -199,6 +202,7 @@ void Loader::Start()
 
     ScanMods();
     DispatchFiles();
+    LogModSummary();
 
     for(auto& rec : plugins)
         if(rec.started && rec.p->Update)
@@ -207,6 +211,37 @@ void Loader::Start()
     size_t installed = 0;
     for(auto& f : files) if(f->installed) ++installed;
     MLA_LOG("Done: %u mod(s), %u file(s), %u handled by plugins", (unsigned)mods.size(), (unsigned)files.size(), (unsigned)installed);
+}
+
+/*
+ *  One line per mod with the number of files of each type, and what was decided for the first files of it.
+ *  When a mod "does nothing" this is the first thing to look at.
+ */
+void Loader::LogModSummary() const
+{
+    for(auto& m : mods)
+    {
+        std::map<std::string, unsigned> byExt;
+        unsigned total = 0;
+        for(auto& f : files)
+            if(f->mod == m.get()) { ++total; ++byExt[Extension(f->rel).empty()? "(none)" : Extension(f->rel)]; }
+
+        std::string types;
+        for(auto& kv : byExt) { char buf[64]; std::snprintf(buf, sizeof(buf), "%s%s=%u", types.empty()? "" : ", ", kv.first.c_str(), kv.second); types += buf; }
+        MLA_LOG("Mod \"%s\": %u file(s) [%s]", m->name.c_str(), total, types.c_str());
+
+        unsigned shown = 0;
+        for(auto& f : files)
+        {
+            if(f->mod != m.get()) continue;
+            if(++shown > 30) { MLA_LOG("    ... and %u more", total - 30); break; }
+
+            std::string who;
+            if(f->handler >= 0) who = plugins[f->handler].p->name;
+            for(int idx : f->callme) who += std::string(who.empty()? "" : " + ") + plugins[idx].p->name + " (callme)";
+            MLA_LOG("    %s  ->  %s", f->rel.c_str(), who.empty()? "no plugin wants this file" : who.c_str());
+        }
+    }
 }
 
 void Loader::Shutdown()

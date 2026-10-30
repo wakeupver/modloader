@@ -79,6 +79,7 @@ class StreamPatcher
         bool                        registered = false;
         bool                        synthLoaded = false;
         int                         synthIdx = -1;
+        int                         allocatedBuffer = 0;    // size of the streaming buffers once they exist (the variable of the game keeps growing as more directories are read)
         std::vector<PatchTarget>    pending;
         size_t                      patchedTotal = 0;
         size_t                      skippedTotal = 0;

@@ -94,6 +94,7 @@ class Loader
         };
 
         void ScanModFolder(Mod& mod, const std::string& relDir);
+        void LogModSummary() const;
         int  FindHandler(ModFile& file);
 
         Paths                                   paths;

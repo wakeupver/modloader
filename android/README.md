@@ -71,6 +71,10 @@ with has 11707712 bytes and `236098b3ffc3c90a`), then one line per hook:
 | `unexpected code ... Hooking anyway` | The first bytes of the function are neither the analysed ones nor a hook. A different build of the game, most likely. The log prints what was found. Put `StrictChecks = true` in `modloader/.data/config.ini` to refuse instead. |
 | `... not under an "/Android..." folder` | The game's files folder is outside of the external storage root, the mods cannot be handed to the game. |
 | `none of them is in CStreaming::ms_aInfoForModel` | A limit adjuster moved the streaming array; replacing entries of IMG archives is switched off, replacing files still works. |
+| `config.ini (read): EnablePlugins=1 EnableData=1 EnableStream=1 ...` | The settings the loader is really using. `EnableStream=0` makes std.stream ignore every model/texture/collision/animation (and says so). |
+| `Mod "X": N file(s) [dff=2, txd=2, ...]` and one `file -> plugin` line per file (the first 30) | What each plugin decided for the files of the mod. `no plugin wants this file` means it will never be used. |
+| `trace: the game opens "DATA\\GTA.DAT" (area 0, access 0)  ->  /storage/.../modloader/...` | The first 600 different files the game opens (`TraceOpens`), the arrow shows the file of a mod that is served instead. If your file is never listed, the game never asks for that name: compare the names. |
+| `std.stream: the game loads the directory of image N ("...")` | The IMG archives the game reads at start-up, followed by how many of their entries have a replacement. |
 | `Done: N mod(s), M file(s), K handled by plugins` | `K = 0` means no plugin took the files: look at the lines above it. |
 
 ## Building

@@ -33,6 +33,7 @@ struct BaseConfig
     bool     injectIdeIpl       = true;     // add the .ide/.ipl files found in mods to gta.dat automatically
     bool     logRedirects       = true;     // log every file served from a mod (once per file)
     bool     strictChecks       = false;    // refuse to hook a function whose code is not the one the port was analysed with
+    bool     traceOpens         = true;     // log the first 600 different files the game opens and which ones come from a mods
 };
 
 /* Returns false when the file could not be read (the defaults stay in 'cfg') */

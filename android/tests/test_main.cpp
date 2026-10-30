@@ -135,7 +135,7 @@ static void TestConfig()
     CHECK(!def.IsModIgnored("Anything"));
     CHECK_EQ_INT(def.GetModPriority("Anything"), 50);
 
-    WriteFile(dir + "/config.ini", "[Config]\nEnableLog = false\nMaxLogSize = 1024\n[Android]\nEnableStream = no\nStrictChecks = yes\n");
+    WriteFile(dir + "/config.ini", "[Config]\nEnableLog = false\nMaxLogSize = 1024\n[Android]\nEnableStream = no\nStrictChecks = yes\nTraceOpens = false\n");
     BaseConfig base;
     CHECK(LoadBaseConfig(dir + "/config.ini", base));
     CHECK(!base.enableLog);
@@ -144,12 +144,14 @@ static void TestConfig()
     CHECK(!base.enableStream);
     CHECK(base.enableData);
     CHECK(base.strictChecks);
+    CHECK(!base.traceOpens);
 
     WriteFile(dir + "/defcfg.ini", DefaultBaseConfigText());
     BaseConfig base2;
     CHECK(LoadBaseConfig(dir + "/defcfg.ini", base2));
     CHECK(base2.enableLog && base2.enableData && base2.enableStream && base2.injectIdeIpl);
     CHECK(!base2.strictChecks);
+    CHECK(base2.traceOpens);
 }
 
 /* ------------------------------------------------------------------------------------------------------------- */
@@ -652,6 +654,14 @@ static void TestLoaderAndPlugins()
     // log, config files were created
     CHECK(fs::Exists(ml + "/.data/config.ini"));
     CHECK(fs::Exists(ml + "/modloader.log"));
+
+    // the log says what was decided for every mod and file
+    std::string log = ReadWhole(ml + "/modloader.log");
+    CHECK(log.find("config.ini (read): EnablePlugins=1 EnableData=1 EnableStream=1") != std::string::npos || log.find("config.ini (not readable, defaults)") != std::string::npos);
+    CHECK(log.find("Mod \"Beta\": ") != std::string::npos);
+    CHECK(log.find("[cfg=1, dff=1, gxt=1, scm=1]") != std::string::npos);
+    CHECK(log.find("Cars/infernus.dff  ->  std.stream + std.data (callme)") != std::string::npos);
+    CHECK(log.find("text/american.gxt  ->  std.data") != std::string::npos);
     L.Shutdown();
 }
 
@@ -693,6 +703,39 @@ static void TestCodeChecks()
     CHECK_EQ_STR(StdData::MakeGameName("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/files/modloader/skin/a.dff"),
                  "/Android_unprotected/data/com.rockstargames.gtasa/files/modloader/skin/a.dff");
     CHECK_EQ_STR(StdData::MakeGameName("/storage/emulated/10/android/data/x/files/a"), "/android/data/x/files/a");
+}
+
+static void TestStreamPatcherImageAfterInit()
+{
+    Section("std.stream patcher (image loaded after CStreaming::Init2)");
+
+    FakeGame g;
+    SetupOriginalImages(g);
+    g.directories["MODELS\\PLAYER.IMG"] = FakeGame::BuildDirectory({ std::make_tuple("cj_small.dff", 500u, 2u), std::make_tuple("cj_big.dff", 600u, 40u) });
+
+    ImgLayout lay = MakeLayout(g_tmp + "/sp5", { {"infernus.dff", 100}, {"cj_small.dff", 100}, {"cj_big.dff", 50000} });   // 1, 1 and 25 sectors
+    {
+        std::vector<std::tuple<std::string, uint32_t, uint32_t>> entries;
+        for(auto& e : lay.entries) entries.push_back(std::make_tuple(e.name, e.offset, e.sectors));
+        g.directories["modloader/.vfs/stream.img"] = FakeGame::BuildDirectory(entries);
+    }
+
+    StreamPatcher p;
+    p.Configure(g.MakeApi(), &lay, "modloader/.vfs/stream.img");
+    g.Init2Loop(p);
+    CHECK_EQ_INT(g.bufferSize, 20);                              // biggest original entry (vehicle.txd)
+
+    // The game did not know these two models when it read our archive (so they were not registered from it), it learns about
+    // them and reads the directory of player.img later, when the streaming buffers exist already.
+    g.modelIndex["cj_small.dff"] = 500;
+    g.modelIndex["cj_big.dff"]   = 501;
+    p.OnLoadCdDirectory("MODELS\\PLAYER.IMG", 5);
+    CHECK_EQ_INT(g.infos[500].imgId, 2);                         // fits: replaced
+    CHECK_EQ_INT(g.infos[500].cdPosn, lay.Find("cj_small.dff")->offset);
+    CHECK_EQ_INT(g.infos[501].imgId, 5);                         // 25 sectors > 20 (what was allocated): left alone
+    CHECK_EQ_INT(g.infos[501].cdPosn, 600);
+    CHECK_EQ_INT(g.bufferSize, 40);                              // raised by the game itself when it read that directory, not by us
+    CHECK_EQ_INT(p.SkippedCount(), 1);
 }
 
 static void TestStreamPatcherRelocatedInfos()
@@ -925,6 +968,14 @@ static void TestHostGlue()
     CHECK_EQ_INT(glue::game.infos[401].imgId, 0);                                                  // other.dff untouched
     CHECK_EQ_INT(glue::game.bufferSize, 20);                                                       // unchanged: the replacements are smaller than the biggest original entry (20 sectors)
 
+    {
+        std::string log = ReadWhole(ml + "/modloader.log");
+        CHECK(log.find("trace: the game opens \"DATA\\HANDLING.CFG\" (area 0, access 0)  ->  " + ml + "/Alpha/data/handling.cfg") != std::string::npos);
+        CHECK(log.find("trace: the game opens \"DATA\\OTHER.DAT\" (area 0, access 0)\n") != std::string::npos);     // not from a mod: no arrow
+        CHECK(log.find("std.stream: the game loads the directory of image 0 (\"MODELS\\GTA3.IMG\")") != std::string::npos);
+        CHECK(log.find("std.stream: the game loads the directory of image 2 (\"modloader/.vfs/stream.img\")") != std::string::npos);
+    }
+
     // the archive is reachable through the hook of OS_FileOpen (the game opens it by its alias)
     std::string archive = ml + "/.data/cache/stream.img";
     glue::absFiles["/Android/data/com.test.glue/files/modloader/.data/cache/stream.img"] = "x";
@@ -982,6 +1033,7 @@ int main()
     TestStreamPatcherEarly();
     TestStreamPatcherLate();
     TestStreamPatcherFailures();
+    TestStreamPatcherImageAfterInit();
     TestStreamPatcherRelocatedInfos();
     TestCodeChecks();
     TestLoaderAndPlugins();

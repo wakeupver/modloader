@@ -40,7 +40,9 @@ static int Hook_OS_FileOpen(int area, void** out, const char* name, int access)
     if(name && name[0] != '\0' && name[0] != '/' && area != gtasa::kAreaUser &&
        (access == gtasa::kAccessRead || access == gtasa::kAccessReadAsync))
     {
-        std::string redirect = d.Redirect(name);
+        std::string abs;
+        std::string redirect = d.Redirect(name, &abs);
+        d.TraceOpen(area, access, name, abs);
         if(!redirect.empty())
         {
             int rc = d.OriginalOpen(area, out, redirect.c_str(), access);
@@ -91,6 +93,8 @@ void StdData::Reset()
     vfs = Vfs();
     candidates.clear();
     logged.clear();
+    traced.clear();
+    traceLeft = 0;
     gtaDatPath.clear();
     gtaDatBuilt = false;
     reader = nullptr;
@@ -222,9 +226,23 @@ std::string StdData::ResolveAbs(const char* gameName)
     return f? f->abs : std::string();
 }
 
-std::string StdData::Redirect(const char* gameName)
+void StdData::TraceOpen(int area, int access, const char* gameName, const std::string& abs)
+{
+    std::lock_guard<std::recursive_mutex> lock(mtx);
+    if(traceLeft <= 0) return;
+    if(!traced.insert(NormalizeKey(gameName)).second) return;
+
+    if(abs.empty()) MLA_LOG("trace: the game opens \"%s\" (area %d, access %d)", gameName, area, access);
+    else            MLA_LOG("trace: the game opens \"%s\" (area %d, access %d)  ->  %s", gameName, area, access, abs.c_str());
+
+    if(--traceLeft == 0)
+        MLA_LOG("trace: limit reached, the next files are not listed (TraceOpens in config.ini)");
+}
+
+std::string StdData::Redirect(const char* gameName, std::string* absOut)
 {
     std::string abs = ResolveAbs(gameName);
+    if(absOut) *absOut = abs;
     if(abs.empty())
         return std::string();
 
@@ -251,7 +269,11 @@ std::string StdData::Redirect(const char* gameName)
 int StdData::CbGetBehaviour(modloader_plugin_t* p, modloader_file_t* file)
 {
     if(!Loader::Get().Config().enableData)
+    {
+        static bool told = false;
+        if(!told) { told = true; MLA_ERR("std.data is switched off by config.ini (EnableData = false): the files of the mods are ignored"); }
         return MODLOADER_BEHAVIOUR_NO;
+    }
 
     std::string ext = ToLower(file->buffer + file->pos_filext);
     bool streamLike = IsStreamExtension(ext);
@@ -325,6 +347,11 @@ int StdData::CbOnStartup(modloader_plugin_t*)
 {
     StdData& d = Get();
     const Host* host = GetHost();
+
+    {
+        std::lock_guard<std::recursive_mutex> lock(d.mtx);
+        d.traceLeft = Loader::Get().Config().traceOpens? 600 : 0;
+    }
 
     if(!host)
     {
